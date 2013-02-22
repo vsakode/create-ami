@@ -1,0 +1,102 @@
+MAnual steps to create the LSES 11 ami from scratch:-
+Login as root to any SLES machine having kiewi tool
+1)
+        Install kiwi imaging tool, specifically following rpms.(preinstalled
+on neemam-sles11 machine)
+        kiwi-desc-netboot-3.74-80.1
+        kiwi-3.74-80.1
+        kiwi-pxeboot-3.74-80.1
+        kiwi-desc-xenboot-3.74-80.1
+        kiwi-tools-3.74-80.1
+        kiwi-doc-3.74-80.1
+        kiwi-desc-oemboot-3.74-80.1
+        kiwi-tools-imagewriter-3.74-80.1
+        kiwi-desc-usbboot-3.74-80.1
+        kiwi-desc-isoboot-3.74-80.1
+        kiwi-pxeboot-prebuild-3.74-80.1
+        kiwi-templates-3.74-80.1
+        kiwi-instsource-3.74-80.1
+        kiwi-desc-vmxboot-3.74-80.1
+
+
+2)
+        Make following changes to the config file. (
+/usr/share/doc/packages/kiwi/examples/suse-11.0/suse-ec2-guest/config.xml )
+i)      Change the package manager to 'zypper'.
+
+ii)     Change the source path to the desired  .ISO/ loop. file (provide full
+path)
+
+iii)    Change 2nd line (optional)
+ <image schemaversion="3.7" name="suse-11.0-ec2-guest">
+to
+<image schemaversion="3.7" name="sles-11.0-ec2">
+
+iv)     Change the image attributes
+"bootsplash-branding-openSUSE"
+to
+"bootsplash-branding-SLES"
+
+v)      Change the image attributes
+"gfxboot-branding-openSUSE"
+to
+"gfxboot-branding-SLES"
+
+vi)     Provide your AWS EC2 credentials
+ec2accountnr=
+ec2privatekeyfile= (provide full path to the pk file)
+ec2certfile= (provide full path to the cert file)
+
+
+
+3)      Run the kiwi command to create the ext3 file system
+Kiwi  -p  <full path of config.xml file(do not include config.xml in this)>
+--root  <destination dir1>
+
+
+
+4)      Add following module to .destination dir1/lib/modules.
+2.6.31-302-ec2
+This module is currently available with openSUSE 11.3 version only.
+Being one of the required modules to run the image without error, we need to
+manually copy it from ./SCRATCH/kernel-ec2-modules. to
+.destinationdir1/lib/modules. in our file system
+
+
+
+5)      Modify /etc/fstab. It should contain following entries
+
+/dev/sda1         /             ext3            defaults        1 1
+/dev/sdb         /mnt            ext3            defaults       0 0
+none            /dev/pts        devpts   mode=0620,gid=5        0 0
+none             /proc          proc            defaults        0 0
+none            /sys             sysfs          defaults        0 0
+
+6)      Modify the /etc/inittab and change the default run level to 3.
+
+
+
+7)      Now bundle the image
+Kiwi  --create  <destination dir1> -d  <destination dir2>
+
+
+
+8)      Destination dir2 contains the bundled image. Upload the bundle using
+EC2 command line tool.
+ec2-upload-bundle  .b  <bucket_name>  -m <manifest.xml> -a  <AWS access key>
+-s  <AWS secret access key>
+
+
+
+9)      Register  the created image.
+ec2-register  -n <image name> -a  x86_64  <bucket_name>/<manifest.xml>
+
+
+
+10)     Run the instance-
+ec2-run-instances <ami-ID> --kernel aki-fd15f694  --ramdisk  ari-7b739e12 -z
+us-east-1c  -k ssh-key-pair  -t  m1.large
+(make sure to run the instance with the specified kernel and ramdisk image
+only)
+
+

@@ -1,0 +1,50 @@
+manual Steps to create AMI from Existing AMI:-
+
+Login to any Linux Machine as root 
+
+1) Boot up the desired AMI
+
+#ec2-run-instances $ami_id --kernel $aki_id --ramdisk $ari_id -z $zone_id -k
+$ssh_key_pair -t $inst_type
+
+
+
+2) SSH to the booted AMI
+
+#ssh -i $ssh_key_path -o StrictHostKeyChecking=no -o
+UserKnownHostsFile=/dev/null -o PasswordAuthentication=no root@$public_dns
+
+
+3) Transfer the pkid, certid, extra rpms, user scripts to the booted machine
+
+#scp -i $ssh_key_path -o StrictHostKeyChecking=no $rpm_tar
+root@$public_dns:/tmp/
+#scp -i $ssh_key_path -o StrictHostKeyChecking=no $EC2_PRIVATE_KEY
+root@$public_dns:/tmp/
+#scp -i $ssh_key_path -o StrictHostKeyChecking=no $EC2_CERTIFICATE_KEY
+root@$public_dns:/tmp
+#scp -i $ssh_key_path -o StrictHostKeyChecking=no $user_script
+root@$public_dns:/tmp
+
+
+4) Untar the rpm and install them on the ami. Also run the trasfered user
+script on the booted machine.
+
+
+#mkdir /tmp/rpms
+#cd /tmp
+#tar -xzf $rpm_tar -C /tmp/rpms
+#rpm -Uvh /tmp/rpms/*.rpm --force --nodeps
+#./modify.sh
+
+
+5) Bundle the AMI with new modifications
+#ec2-bundle-vol -k /tmp/$pkid -c /tmp/$certid -u $AWS_ACCOUNT_NUMBER
+
+6)Upload the bundle
+#ec2-upload-bundle -b $BUCKET_NAME -m /tmp/image.manifest.xml -a
+$AWS_ACCESS_KEY_ID -s $AWS_SECRET_ACCESS_KEY
+
+
+7) Register the new ami
+# ec2-register -n $image_name -a $ARCH $BUCKET_NAME/image.manifest.xml

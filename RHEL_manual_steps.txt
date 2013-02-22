@@ -1,0 +1,145 @@
+Manual Steps to create the RHEL ami from SCRATCH
+1) mount ISO image
+ #mount -o loop $ISOpath /mnt/b
+
+2) Create the root disk image file myrhel.fs (10 GB max)
+#dd if=/dev/zero of=myrhel.fs bs=1M count=1000
+
+3) create the ext3 file system
+#/sbin/mke2fs -F -j myrhel.fs
+
+4) loopmount the image on /ec2-fs
+# mount -o loop myrhel.fs /ec2-fs
+
+5) Create the necessary dev
+#mkdir /mnt/ec2-fs/dev
+#/sbin/MAKEDEV -d /mnt/ec2-fs/dev -x console
+#/sbin/MAKEDEV -d /mnt/ec2-fs/dev -x null
+#/sbin/MAKEDEV -d /mnt/ec2-fs/dev -x zero
+#mkdir /mnt/ec2-fs/etc
+#mkdir /mnt/ec2-fs/proc
+
+6) proc needs to be mounted manually
+#mount -t proc none /mnt/ec2-fs/proc
+
+7) Update the my.repo file in /etc/repos.d/
+#cat << EOL | tee /etc/yum.repos.d/my.repo
+[RHEL_5_Workstation_Repository]
+name=Red Hat Enterprise Linux
+baseurl=file:///b/Server
+enabled=1
+[RHEL_5_VT_Repository]
+name=Red Hat Enterprise Linux
+baseurl=file:///b/VT
+enabled=1
+[RHEL_5_Client_Repository]
+name=Red Hat Enterprise Linux
+baseurl=file:///b/Cluster
+enabled=1
+EOL
+
+8) Install the OS
+#yum -c /etc/yum.repos.d/my.repo --installroot=/mnt/ec2-fs -y groupinstall
+Base (For base install)
+# yum -c /etc/yum.repos.d/my.repo --installroot=/mnt/ec2-fs install $packname
+# (For selective install)
+
+9) Install extra rpms
+#rpm --root /mnt/ec2-fs -Uvh /SCRATCH/extra_rpms/*.rpm --force --nodeps
+
+10) update fstab
+#cat << EOL > /mnt/ec2-fs/etc/fstab
+/dev/sda1  /         ext3    defaults        1 1
+none       /dev/pts  devpts  gid=5,mode=620  0 0
+none       /dev/shm  tmpfs   defaults        0 0
+none       /proc     proc    defaults        0 0
+none       /sys      sysfs   defaults        0 0
+/dev/sda2  /mnt      ext3    defaults        1 2
+/dev/sda3  swap      swap    defaults        0 0
+EOL
+
+11) update ifcfg-eth0
+#cat << EOL > /mnt/ec2-fs/etc/sysconfig/network-scripts/ifcfg-eth0
+DEVICE=eth0
+BOOTPROTO=dhcp
+ONBOOT=yes
+TYPE=Ethernet
+USERCTL=yes
+PEERDNS=yes
+IPV6INIT=no
+EOL
+
+12) Update network
+#cat << EOL > /mnt/ec2-fs/etc/sysconfig/network
+HOSTNAME=localhost.localdomain
+NETWORKING=yes
+EOL
+
+13) update rc.local
+#cat << EOL >> /mnt/ec2-fs/etc/rc.local
+touch /var/lock/subsys/local
+#Update the EC2 AMI tools
+#echo "Updating ec2-ami-tools"
+#curl -o /tmp/ec2-ami-tools.noarch.rpm
+http://s3.amazonaws.com/ec2-downloads/ec2-ami-tools-noarch.rpm
+#rpm -UvH /tmp/ec2-ami-tools.noarch.rpm
+#echo "updated ec2-ami-tools"
+##additional user provided script
+touch /var/lock/subsys/local
+if [ ! -d /root/.ssh ] ; then
+        mkdir -p /root/.ssh
+        chmod 700 /root/.ssh
+fi
+# Fetch public key using HTTP
+curl -f http://169.254.169.254/latest/meta-data/public-keys/0/openssh-key >
+/tmp/my-key
+if [ 0 -eq 0 ] ; then
+        cat /tmp/my-key >> /root/.ssh/authorized_keys
+        chmod 600 /root/.ssh/authorized_keys
+        rm /tmp/my-key
+fi
+# or fetch public key using the file in the ephemeral store:
+if [ -e /mnt/openssh_id.pub ] ; then
+        cat /mnt/openssh_id.pub >> /root/.ssh/authorized_keys
+        chmod 600 /root/.ssh/authorized_keys
+fi
+# Update the EC2 AMI creation tools
+#echo " + Updating AMI tools"
+#rpm -Uvh http://s3.amazonaws.com/ec2-downloads/ec2-ami-tools.noarch.rpm
+#rpm -Uvh
+http://s3.amazonaws.com/redhat-cloud/RHEL-cloud-tools/hosted-tools.el.noarch.rpm
+chmod 1777 /tmp
+chmod 1777 /mnt
+EOL
+
+
+14) update sshd_config
+#cat <<EOL >> /mnt/ec2-fs/etc/ssh/sshd_config
+UseDNS no
+PermitRootLogin without-password
+GatewayPorts yes
+EOL
+
+15) update hosts
+#cat <<EOL >> /mnt/ec2-fs/etc/hosts
+127.0.0.1 localhost localhost.localadmin
+EOL
+
+
+16)Copy user script to /tmp of /mnt/ec2-fs and Run the user script as chroot
+#chroot /mnt/ec2-fs /tmp/modify.sh
+
+17)Unmount loopback image and Create the bundle
+umount /mnt/ec2-fs/proc
+umount /mnt/ec2-fs
+mv rhel.fs rhel_x86_64_<date>.fs
+#ec2-bundle-image -i rhel_x86_64_<date>.fs -k $EC2_PRIVATE_KEY -c
+$EC2_CERTIFICATE_KEY -u $AWS_ACCOUNT_NUMBER --arch $ARCH
+
+18)upload the bundle
+#ec2-upload-bundle -b $BUCKET_NAME -m /tmp/<***.manifest.xml> -a
+$AWS_ACCESS_KEY_ID -s $AWS_SECRET_ACCESS_KEY
+
+19)Register the image
+#ec2-register -n <$aminame> -a $ARCH $BUCKET_NAME/****.manifest.xml
+
